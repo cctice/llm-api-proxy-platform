@@ -1,0 +1,284 @@
+// Prisma Schema for LLM API Proxy Platform
+// Development: SQLite
+// Production: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // Change to "postgresql" for production
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// 用户表
+// ============================================
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String   // bcrypt hashed
+  name      String?
+  role      String   @default("user") // admin/user
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  apiKeys  ApiKey[]
+  quotas    Quota[]
+  alerts    Alert[]
+}
+
+// ============================================
+// API提供商表
+// ============================================
+model ApiProvider {
+  id          String   @id @default(cuid())
+  name        String   @unique // openai, anthropic, zhipu, qwen
+  displayName String   // OpenAI, Anthropic, 智谱AI
+  endpoint    String   // https://api.openai.com/v1
+  enabled     Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  models       Model[]
+  billingRules BillingRule[]
+  providerKeys ProviderKey[]
+}
+
+// ============================================
+// 模型表
+// ============================================
+model Model {
+  id           String   @id @default(cuid())
+  providerId    String
+  provider     ApiProvider @relation(fields: [providerId], references: [id])
+  name         String   // gpt-4, claude-3-opus
+  displayName  String   // GPT-4, Claude 3 Opus
+  type         String   // chat/completion/embedding
+  contextWindow Int      // 上下文窗口大小
+  maxTokens    Int      // 最大输出tokens
+  enabled      Boolean  @default(true)
+
+  provider     ApiProvider @relation("models", fields: [providerId], references: [id])
+  billingRules BillingRule[]
+  requests    Request[]
+
+  @@unique([providerId, name])
+}
+
+// ============================================
+// 计费规则表
+// ============================================
+model BillingRule {
+  id          String   @id @default(cuid())
+  providerId  String
+  modelId     String?
+  provider    ApiProvider @relation(fields: [providerId], references: [id])
+  model      Model?     @relation("billingRules", fields: [modelId], references: [id])
+
+  inputPrice  Float    // 每1K输入tokens价格（美元）
+  outputPrice Float    // 每1K输出tokens价格（美元）
+  requestPrice Float?   // 每次请求价格（美元）
+  currency    String   @default("USD")
+
+  validFrom   DateTime @default(now())
+  validUntil  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([providerId, modelId])
+}
+
+// ============================================
+// 厂商API密钥表
+// ============================================
+model ProviderKey {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   ApiProvider @relation(fields: [providerId], references: [id])
+
+  keyName    String
+  apiKey     String   // Encrypted storage
+  enabled    Boolean  @default(true)
+  priority   Int      @default(0) // Load balancing priority
+  weight     Float?   @default(1.0) // Weight for load balancing
+
+  requestCount Int      @default(0)
+  lastUsedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerId, enabled, priority])
+}
+
+// ============================================
+// 用户分配的API Key表
+// ============================================
+model ApiKey {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+
+  keyPrefix     String   @unique // sk-proj_xxxx
+  keySecret     String   // Full secret key (encrypted)
+
+  name          String?   // Custom name
+  description   String?
+
+  // Quota limits
+  maxTokens     Int?      // Max tokens
+  maxRequests   Int?      // Max requests
+  expiresAt     DateTime?  // Expiration time
+
+  // Statistics
+  totalTokens   Int       @default(0)
+  totalRequests Int       @default(0)
+  lastUsedAt    DateTime?
+
+  enabled       Boolean   @default(true)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  requests     Request[]
+
+  @@index([userId, enabled])
+  @@index([keyPrefix])
+}
+
+// ============================================
+// 套餐表
+// ============================================
+model Quota {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+
+  name         String
+  type         String   // monthly/yearly/ondemand
+  price        Float    // Package price (USD)
+
+  // Quota configuration
+  tokenLimit   Int?     // Token limit
+  requestLimit Int?     // Request limit
+
+  // Validity period
+  validFrom    DateTime @default(now())
+  validUntil   DateTime?
+
+  // Current usage
+  usedTokens   Int      @default(0)
+  usedRequests Int      @default(0)
+
+  status       String   @default("active") // active/suspended/expired
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status, validUntil])
+}
+
+// ============================================
+// 请求记录表
+// ============================================
+model Request {
+  id               String   @id @default(cuid())
+  userId           String?
+  user             User?     @relation(fields: [userId], references: [id])
+
+  apiKeyId         String?
+  apiKey           ApiKey?   @relation(fields: [apiKeyId], references: [id])
+
+  modelId          String
+  model            Model     @relation(fields: [modelId], references: [id])
+
+  providerId       String
+
+  // Request details
+  promptTokens     Int       @default(0)
+  completionTokens Int       @default(0)
+  totalTokens      Int       @default(0)
+
+  // Billing
+  inputCost        Float?
+  outputCost       Float?
+  totalCost        Float?
+
+  // Metadata
+  latency          Int?      // Response time (ms)
+  statusCode       Int?      // HTTP status code
+  errorMessage     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([apiKeyId, createdAt])
+  @@index([modelId, createdAt])
+  @@index([createdAt])
+}
+
+// ============================================
+// 告警表
+// ============================================
+model Alert {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+
+  type         String   // quota_exceeded/high_usage/anomaly
+  severity     String   // info/warning/critical
+  message      String
+
+  // Threshold
+  threshold    Json?
+
+  // Current value
+  currentValue Json?
+
+  // Processing status
+  status       String   @default("pending") // pending/resolved/dismissed
+
+  resolvedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, status, createdAt])
+}
+
+// ============================================
+// 用量统计表
+// ============================================
+model UsageStat {
+  id            String   @id @default(cuid())
+
+  // Time dimension
+  period        String   // hour/day/week/month
+  periodStart   DateTime
+  periodEnd     DateTime
+
+  // Statistics dimension
+  userId        String?   // By user
+  apiKeyId      String?   // By API key
+  modelId       String?   // By model
+  providerId    String?   // By provider
+
+  // Aggregated metrics
+  totalRequests Int       @default(0)
+  totalTokens   Int       @default(0)
+  inputTokens   Int       @default(0)
+  outputTokens  Int       @default(0)
+  totalCost     Float     @default(0)
+
+  // Counts
+  successCount  Int       @default(0)
+  errorCount    Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([period, periodStart, userId, apiKeyId, modelId, providerId])
+  @@index([period, periodStart])
+}
