@@ -27,6 +27,7 @@ model User {
   apiKeys  ApiKey[]
   quotas    Quota[]
   alerts    Alert[]
+  requests  Request[]
 }
 
 // ============================================
@@ -61,7 +62,6 @@ model Model {
   maxTokens    Int      // 最大输出tokens
   enabled      Boolean  @default(true)
 
-  provider     ApiProvider @relation("models", fields: [providerId], references: [id])
   billingRules BillingRule[]
   requests    Request[]
 
@@ -76,7 +76,7 @@ model BillingRule {
   providerId  String
   modelId     String?
   provider    ApiProvider @relation(fields: [providerId], references: [id])
-  model      Model?     @relation("billingRules", fields: [modelId], references: [id])
+  model       Model?     @relation(fields: [modelId], references: [id])
 
   inputPrice  Float    // 每1K输入tokens价格（美元）
   outputPrice Float    // 每1K输出tokens价格（美元）
@@ -234,10 +234,10 @@ model Alert {
   message      String
 
   // Threshold
-  threshold    Json?
+  threshold    String?  // JSON string for SQLite
 
   // Current value
-  currentValue Json?
+  currentValue String?  // JSON string for SQLite
 
   // Processing status
   status       String   @default("pending") // pending/resolved/dismissed

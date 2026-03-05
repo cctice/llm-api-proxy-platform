@@ -41,7 +41,7 @@ export class ApiKeyService {
   }
 
   static async validateApiKey(keySecret: string) {
-    const apiKey = await prisma.apiKey.findUnique({
+    const apiKey = await prisma.apiKey.findFirst({
       where: { keySecret },
       include: { user: true },
     });
