@@ -18,32 +18,23 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-  });
-});
+// Routes
+import routes from './routes';
+import { requestLogger } from './middleware/logger';
+import { errorHandler, notFound } from './middleware/errorHandler';
 
-// API routes (will be added)
-// app.use('/api/v1', apiRoutes);
+app.use(requestLogger);
+app.use('/api/v1', routes);
 
 // Error handling
-app.use((err, req, res, next) => {
-  logger.error(err);
-  res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: err.message,
-    },
-  });
-});
+app.use(notFound);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  logger.info(`Server running on http://localhost:${PORT}`);
+  logger.info(`LLM API Proxy Server running on http://localhost:${PORT}`);
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+
+export default app;
