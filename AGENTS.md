@@ -29,6 +29,16 @@ This is an LLM API unified proxy platform with two packages:
 - **Vitest**: Configured in server `package.json` but no test files exist. `npm run test` exits with code 1 (no tests found).
 - **Redis**: Listed in dependencies (`ioredis`) but optional for dev. The server starts without Redis.
 
+### Update Script (Cloud Warmup)
+
+The VM startup update script handles:
+1. `npm install` for both `server/` and `client/`
+2. `.env` creation from `.env.example` (if missing)
+3. `npx prisma generate` — caches the Prisma Client into `server/node_modules/.prisma/client/`
+4. `npx prisma migrate deploy` — applies pending migrations non-interactively (falls back to `migrate dev` for fresh databases)
+
+After the update script runs, services are ready to start immediately without additional setup.
+
 ### Integration Tests
 
 The repo includes `test.sh` (curl-based smoke tests against the running backend). Run it after starting the backend:
